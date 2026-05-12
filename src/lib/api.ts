@@ -40,6 +40,15 @@ export const api = {
       `/api/restaurants/employee/${employeeId}`,
       { method: "GET", token }
     ),
+  getRestaurantMenu: (restaurantId: string, token: string) =>
+    request<
+      {
+        _id: string;
+        restaurant: string;
+        __v: number;
+        items: { name: string; description: string; price: number; _id: string }[];
+      }[]
+    >(`/api/menus/restaurant/${restaurantId}`, { method: "GET", token }),
   addStamp: (
     body: {
       customerId: string;

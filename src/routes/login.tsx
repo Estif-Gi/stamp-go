@@ -1,4 +1,4 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, useNavigate, redirect } from "@tanstack/react-router";
 import { zodValidator, fallback } from "@tanstack/zod-adapter";
 import { z } from "zod";
 import { useEffect, useState } from "react";
@@ -8,15 +8,71 @@ import { Loader2, ScanLine, Lock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { api } from "@/lib/api";
 import { useAuth } from "@/lib/store";
 
+const BASE = import.meta.env.VITE_API_BASE_URL ?? "";
+
+async function request<T>(
+  path: string,
+  init: RequestInit & { token?: string | null } = {}
+): Promise<T> {
+  const { token, headers, ...rest } = init;
+  const res = await fetch(`${BASE}${path}`, {
+    ...rest,
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(headers || {}),
+    },
+  });
+  const text = await res.text();
+  let data: unknown = null;
+  try {
+    data = text ? JSON.parse(text) : null;
+  } catch {
+    data = text;
+  }
+  if (!res.ok) {
+    const msg =
+      (data as { message?: string })?.message ||
+      (typeof data === "string" ? data : `Request failed (${res.status})`);
+    throw new Error(msg);
+  }
+  return data as T;
+}
+
+async function login(employeeId: string, password: string) {
+
+  console.log(employeeId, password)
+  console.log(JSON.stringify({ employeeId, password }))
+  return request<{ token: string; employee?: Record<string, unknown> }>(
+    "/api/restaurants/employee/login",
+    { method: "POST", body: JSON.stringify({ employeeId, password }) }
+  );
+}
+
+async function getRestaurantByEmployee(employeeId: string, token: string) {
+  return request<{ id: string; name: string; loyaltyPrograms: string[] }>(
+    `/api/restaurants/employee/${employeeId}`,
+    { method: "GET", token }
+  );
+}
+
+// FIX: Use z.string().optional() so absent params are undefined, not ""
+// fallback("") only fires for invalid (non-string) values — a missing param
+// produces undefined which we handle explicitly below.
 const searchSchema = z.object({
-  employeeId: fallback(z.string(), "").default(""),
+  employeeId: fallback(z.string().optional(), undefined),
 });
 
 export const Route = createFileRoute("/login")({
   validateSearch: zodValidator(searchSchema),
+  beforeLoad: () => {
+    const { token, restaurant } = useAuth.getState();
+    if (token && restaurant) {
+      throw redirect({ to: "/scan" });
+    }
+  },
   component: LoginPage,
 });
 
@@ -24,21 +80,31 @@ function LoginPage() {
   const { employeeId: queryEmployeeId } = Route.useSearch();
   const navigate = useNavigate();
   const { setAuth, setRestaurant, employeeId: storedId } = useAuth();
+
+  // Prefer the URL param, fall back to whatever was previously stored
   const employeeId = queryEmployeeId || storedId || "";
 
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
 
+  // Persist the URL param into the store so it survives page refreshes
+  // where the query string might be lost (e.g. after a hard reload on /login).
   useEffect(() => {
     if (queryEmployeeId) {
-      // store provisional id so refresh keeps it
       useAuth.setState({ employeeId: queryEmployeeId });
     }
   }, [queryEmployeeId]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!employeeId) {
+
+    // FIX: Read the freshest value from the store at submit time instead of
+    // relying on the `employeeId` variable captured during render, which may
+    // be stale if the useEffect hadn't fired yet on the first render.
+    const resolvedEmployeeId =
+      queryEmployeeId || useAuth.getState().employeeId || "";
+
+    if (!resolvedEmployeeId) {
       toast.error("Missing employee ID. Scan your employee QR to continue.");
       return;
     }
@@ -46,16 +112,22 @@ function LoginPage() {
       toast.error("Enter your password");
       return;
     }
+
     setLoading(true);
     try {
-      const res = await api.login(employeeId, password);
+      const res = await login(resolvedEmployeeId, password);
       if (!res.token) throw new Error("No token returned");
+
       setAuth({
         token: res.token,
-        employeeId,
+        employeeId: resolvedEmployeeId,
         employee: (res.employee as never) ?? null,
       });
-      const restaurant = await api.getRestaurantByEmployee(employeeId, res.token);
+
+      const restaurant = await getRestaurantByEmployee(
+        resolvedEmployeeId,
+        res.token
+      );
       setRestaurant(restaurant);
       toast.success(`Welcome to ${restaurant.name}`);
       navigate({ to: "/scan" });
@@ -74,7 +146,9 @@ function LoginPage() {
           <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-primary text-primary-foreground shadow-lg">
             <ScanLine className="h-7 w-7" />
           </div>
-          <h1 className="text-2xl font-semibold tracking-tight">Employee sign in</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">
+            Employee sign in
+          </h1>
           <p className="text-sm text-muted-foreground">
             Enter your password to start scanning customers.
           </p>
