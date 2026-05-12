@@ -27,6 +27,7 @@ function rgbToOklch([r, g, b]: [number, number, number]): {
   const s = 0.0883024619 * R + 0.2817188376 * G + 0.6299787005 * B;
   const l_ = Math.cbrt(l);
   const m_ = Math.cbrt(m);
+  
   const s_ = Math.cbrt(s);
   const L = 0.2104542553 * l_ + 0.793617785 * m_ - 0.0040720468 * s_;
   const a = 1.9779984951 * l_ - 2.428592205 * m_ + 0.4505937099 * s_;
