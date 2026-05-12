@@ -12,4 +12,12 @@ export default defineConfig({
   tanstackStart: {
     server: { entry: "server" },
   },
+  vite: {
+    server: {
+      allowedHosts: [
+        "loyal-employee.onrender.com",
+        ".onrender.com",
+      ],
+    },
+  },
 });
