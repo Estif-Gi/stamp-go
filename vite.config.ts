@@ -13,6 +13,9 @@ export default defineConfig({
     server: { entry: "server" },
   },
   vite: {
+    define: {
+      "process.env.NODE_ENV": JSON.stringify("production"),
+    },
     server: {
       allowedHosts: [
         "loyal-employee.onrender.com",
